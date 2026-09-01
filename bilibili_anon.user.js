@@ -6,6 +6,7 @@
 // @match        https://www.bilibili.com/video/*
 // @match        https://www.bilibili.com/opus/*
 // @match        https://www.bilibili.com/read/*
+// @license      GNU AGPLv3
 // @run-at       document-idle
 // @grant        none
 // ==/UserScript==

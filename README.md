@@ -141,3 +141,8 @@ OCR 模型首次运行自动下载到 `~/.paddlex/official_models/`。
 - 产物：`<图片目录>/output/`（匿名图、`compare/` 对比图、`marks/` 标注 JSON、
   `mapping.json` 全局映射（含 exclude 排除名单）、`.ocr_cache/`）；每次保存标注时
   上一版自动留 `marks/<名>.json.bak`，改崩了可手动改回
+
+## 许可证
+
+AGPL-3.0，与 MAA 相同：修改后的衍生版本（含仅提供网络服务的形态）须以同许可证开源，
+允许商用。详见仓库根目录的 `LICENSE`。
