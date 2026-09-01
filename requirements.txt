@@ -1,0 +1,10 @@
+# 通用依赖（pip install -r requirements.txt）
+numpy>=1.26
+opencv-python>=4.10
+pillow>=10.4
+pypinyin>=0.55
+paddleocr==3.2.0
+mcp>=1.23
+
+# Paddle GPU 推理后端不在 PyPI（Windows 无 GPU wheel），须用官方源单独安装（见 README）：
+# pip install paddlepaddle-gpu==3.2.0 -i https://www.paddlepaddle.org.cn/packages/stable/cu126/
