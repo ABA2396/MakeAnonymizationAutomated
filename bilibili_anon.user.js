@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         B站截图打码助手
 // @namespace    anon.bilibili
-// @version      0.5.7
+// @version      0.5.8
 // @description  左下角 ｢码｣ 按钮或 Alt+M 进入打码编辑态：编辑态禁用页面一切跳转/点击动作；点头像或用户名即同时盖圆+替换 ｢用户首字母｣。头像与用户名链接同一 mid，共用同一档案：颜色（用户名拼音首字母）恒一致，无任何弹窗输入。仅本次页面生效，不写任何持久化存储，刷新即清空。覆盖视频/动态(opus)/专栏(read)页面。
 // @match        https://www.bilibili.com/video/*
 // @match        https://www.bilibili.com/opus/*
@@ -627,6 +627,24 @@
         return box ? (avatarCoreOf(box) ? box : avatarImgOf(box)) : null;
     }
 
+    // 名字文本该配谁的头像：只有楼层主人名（user-info 之内）才配本层头像；正文里的
+    // @提及/引用挂在别人楼层（本层头像属于楼层主人），配了会把排除名单用户的头像
+    // 盖成被提及者的码，只打文本；评论区之外（作者区等）仍就近找头像
+    function avatarForName(el) {
+        let n = el;
+        while (n) {
+            const root = n.getRootNode ? n.getRootNode() : document;
+            if (root === document) break;
+            const host = root.host;
+            if (host) {
+                if (host.tagName === 'BILI-COMMENT-USER-INFO') return avatarInSameComment(el);
+                if (host.tagName === 'BILI-COMMENTS') return null;
+            }
+            n = host;
+        }
+        return avatarNear(el);
+    }
+
     // 头像附近的用户名链接（同 shadow root 内优先，再沿容器边界找；排除头像自身的链接）
     function nameNearAvatar(imgEl) {
         const roots = [imgEl.getRootNode()];
@@ -748,7 +766,7 @@
             const name = cleanName(hit.el.textContent);
             const info = infoFor(mid, name);
             if (info.name || mid) {
-                maskUserAt(hit.el, avatarInSameComment(hit.el) || avatarByMid(mid) || avatarNear(hit.el), info);
+                maskUserAt(hit.el, avatarForName(hit.el) || avatarByMid(mid), info);
                 hideHoverCardsSoon();
                 setStatus(`已打码：${info.name || name || 'mid:' + mid} → 用户${info.letter}（头像+名字）`);
                 return;
@@ -842,19 +860,24 @@
         for (const [node, info] of hits) {
             const el = node.parentElement;
             if (!el || el.dataset.anonDone) continue;
-            if (maskUserAt(el, avatarInSameComment(el) || avatarNear(el), info)) n++;
+            if (maskUserAt(el, avatarForName(el), info)) n++;
         }
         return n;
     }
 
-    // 自动应用已知名单 + 编辑态下对新插入内容禁 href（评论区懒加载/展开回复）
+    // 自动应用已知名单 + 编辑态下对新插入内容禁 href（评论区懒加载/展开回复）。
+    // 防抖 600ms，但播放中的视频页 body 常态变动间隙 <600ms（实测 <270ms），
+    // 纯防抖会被无限重置饿死，故每轮变动起点起最多 2s 强制执行一次
     let moTimer = null;
+    let moFirst = 0;
     const mo = new MutationObserver(() => {
+        if (!moTimer) moFirst = Date.now();
         clearTimeout(moTimer);
         moTimer = setTimeout(() => {
+            moTimer = null;
             if (editing) disableLinks();
             if (autoApply) applyKnown();
-        }, 600);
+        }, Math.min(600, Math.max(0, moFirst + 2000 - Date.now())));
     });
 
     // ---------------- UI ----------------
