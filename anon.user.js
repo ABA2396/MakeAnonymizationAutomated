@@ -1,6 +1,7 @@
 // ==UserScript==
 // @name         B站/GitHub截图打码助手
 // @namespace    anon.web
+// @author       uye
 // @version      0.6.0
 // @description  左下角 ｢码｣ 按钮或 Alt+M 进入打码编辑态：编辑态禁用页面一切跳转/点击动作；点头像或用户名即同时盖圆+替换 ｢用户首字母｣。头像与用户名链接同一账号，共用同一档案：颜色（用户名拼音首字母）恒一致，无任何弹窗输入。仅本次页面生效，不写任何持久化存储，刷新即清空。覆盖 B 站 视频/动态(opus)/专栏(read) 与 GitHub issue/PR 页面。
 // @match        https://www.bilibili.com/video/*
@@ -8,6 +9,8 @@
 // @match        https://www.bilibili.com/read/*
 // @match        https://github.com/*/*/issues/*
 // @match        https://github.com/*/*/pull/*
+// @updateURL    https://raw.githubusercontent.com/ABA2396/MakeAnonymizationAutomated/main/anon.user.js
+// @downloadURL  https://raw.githubusercontent.com/ABA2396/MakeAnonymizationAutomated/main/anon.user.js
 // @license      GNU AGPLv3
 // @run-at       document-idle
 // @grant        none
