@@ -2,7 +2,7 @@
 
 **优先用油猴脚本**：在网页上直接打码，头像、名字、@提及直接取自页面结构（B 站连头像挂件、个性装扮也能一并隐藏）；但识别基于站点现有的组件与布局逻辑，站点改版后可能失效，需要跟进适配。只有已存成图片的内容（QQ 聊天记录、网页截图等）才用本地半自动工具——它只能靠霍夫圆/连通域从像素里检测头像，效果有限：与背景颜色接近时可能吸出偏小的圆把头像盖不全，装饰边框、深色主题更容易漏检、错检，很可能需要人工框选修正。全局映射保证同一用户名跨图同色、同 ｢用户首字母｣ 标签（内部编号也一致），导出时自动扫描 @提及 与灰字引用标题一并打码；草稿核对与成图验收推荐调视觉模型读 compare 对比图完成（见 MCP 一节的工作流）。
 
-## 油猴脚本（bilibili_anon.user.js，优先）
+## 油猴脚本（anon.user.js，优先）
 
 网页端直接打码，覆盖 B 站 视频(`/video/*`)、动态(`/opus/*`)、专栏(`/read/*`) 与 GitHub issue(`/issues/*`)、PR(`/pull/*`) 页面（GitHub 部分经实际页面测试）：
 
@@ -105,7 +105,7 @@ python patch_paddlex.py
 - `ui.py` tkinter 标注界面
 - `mcp_server.py` MCP stdio server
 - `patch_paddlex.py` 升级 paddlex 后重打 modelscope 惰性导入补丁（背景与用法见 ｢依赖｣）
-- `bilibili_anon.user.js` B 站/GitHub 油猴脚本
+- `anon.user.js` B 站/GitHub 油猴脚本
 - 产物：`<图片目录>/output/`（匿名图、`compare/` 对比图、`marks/` 标注 JSON、`mapping.json` 全局映射（含 exclude 排除名单）、`.ocr_cache/`）；每次保存标注时上一版自动留 `marks/<名>.json.bak`，改崩了可手动改回
 
 ## 许可证
