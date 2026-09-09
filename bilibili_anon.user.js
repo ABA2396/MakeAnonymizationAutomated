@@ -1,11 +1,13 @@
 // ==UserScript==
-// @name         B站截图打码助手
+// @name         B站/GitHub截图打码助手
 // @namespace    anon.bilibili
-// @version      0.5.8
-// @description  左下角 ｢码｣ 按钮或 Alt+M 进入打码编辑态：编辑态禁用页面一切跳转/点击动作；点头像或用户名即同时盖圆+替换 ｢用户首字母｣。头像与用户名链接同一 mid，共用同一档案：颜色（用户名拼音首字母）恒一致，无任何弹窗输入。仅本次页面生效，不写任何持久化存储，刷新即清空。覆盖视频/动态(opus)/专栏(read)页面。
+// @version      0.6.0
+// @description  左下角 ｢码｣ 按钮或 Alt+M 进入打码编辑态：编辑态禁用页面一切跳转/点击动作；点头像或用户名即同时盖圆+替换 ｢用户首字母｣。头像与用户名链接同一账号，共用同一档案：颜色（用户名拼音首字母）恒一致，无任何弹窗输入。仅本次页面生效，不写任何持久化存储，刷新即清空。覆盖 B 站 视频/动态(opus)/专栏(read) 与 GitHub issue/PR 页面。
 // @match        https://www.bilibili.com/video/*
 // @match        https://www.bilibili.com/opus/*
 // @match        https://www.bilibili.com/read/*
+// @match        https://github.com/*/*/issues/*
+// @match        https://github.com/*/*/pull/*
 // @license      GNU AGPLv3
 // @run-at       document-idle
 // @grant        none
@@ -843,6 +845,7 @@
 
     // force=true（工具条按钮）时忽略 skip 标记强制全应用；自动路径尊重手动撤销的 skip
     function applyKnown(force) {
+        if (IS_GITHUB) return ghApplyKnown(force); // GitHub 走自己的链接识别，不走 B 站 shadow 查找
         const byName = new Map();
         for (const u of Object.values(users)) {
             if (u.name && (force || !u.skip)) byName.set(u.name, u);
@@ -880,6 +883,255 @@
         }, Math.min(600, Math.max(0, moFirst + 2000 - Date.now())));
     });
 
+    // ---------------- GitHub 站点实现（独立于 B 站逻辑，互不影响） ----------------
+    // GitHub 无 shadow DOM，用户（含 /apps/ 的 App）在页面上的一切呈现都是带
+    // data-hovercard-type="user" 的链接：纯文本 = 用户名/@提及/事件行，含 img = 头像。
+    // 打码直接按链接做：链接即身份，名字与头像靠同一档案键关联，不做就近猜测
+    const IS_GITHUB = location.host === 'github.com';
+    const GH_RESERVED = new Set(['about', 'apps', 'collections', 'codespaces', 'contact', 'copilot', 'customer-stories', 'education', 'enterprise', 'events', 'explore', 'features', 'git', 'github', 'issues', 'login', 'logout', 'marketplace', 'mcp', 'new', 'notifications', 'orgs', 'partners', 'pricing', 'pulls', 'readme', 'resources', 'search', 'security', 'settings', 'signup', 'site', 'solutions', 'sponsors', 'team', 'topics', 'trending', 'trust-center', 'why-github']);
+
+    // 用户链接 → 档案键（归一化 login）；组织/仓库/导航链接返回 null。hovercard 属性
+    // 缺失时退单段路径判定（正文里手写的 markdown 用户链接没有该属性）；页头页脚按
+    // 位置整块排除（登录态下隐藏菜单里的 ｢Your profile｣ 等单段链接也扫得到），正文
+    // 撞保留字的导航链接靠保留字表排除；仓库 owner 段是公开的仓库标识，不认
+    function ghUserKeyOf(a) {
+        const hc = a.getAttribute && a.getAttribute('data-hovercard-type');
+        if (hc && hc !== 'user') return null;
+        if (a.closest && a.closest('header, footer')) return null;
+        let u;
+        try { u = new URL(hrefOf(a), location.origin); } catch (err) { return null; }
+        if (u.host !== location.host) return null;
+        const seg = u.pathname.split('/').filter(Boolean);
+        if (seg.length && seg[0].toLowerCase() === (location.pathname.split('/')[1] || '').toLowerCase()) return null;
+        if (seg.length === 2 && seg[0].toLowerCase() === 'apps') {
+            return /^[A-Za-z0-9-]+$/.test(seg[1]) ? 'app:' + seg[1].toLowerCase() : null;
+        }
+        if (seg.length !== 1 || !/^[A-Za-z0-9-]+$/.test(seg[0]) || GH_RESERVED.has(seg[0].toLowerCase())) return null;
+        return 'u:' + seg[0].toLowerCase();
+    }
+
+    // 全页用户链接按档案键分组：names=纯文本链接（作者名/@提及/事件行），avatars=头像
+    // 链接里的 img。楼层里并列的别人链接（issue 被 bot 编辑过时带 ｢Last edited by bot｣、
+    // 引用块等）属于别的键，天然不会与本楼层主人串档
+    function ghGroups() {
+        const byKey = new Map();
+        const groupOf = (key) => {
+            let g = byKey.get(key);
+            if (!g) byKey.set(key, g = { key: key, names: [], avatars: [] });
+            return g;
+        };
+        for (const a of deepQueryAll('a[href], a[data-anon-href]')) {
+            const key = ghUserKeyOf(a);
+            if (!key) continue;
+            const img = a.querySelector('img');
+            (img ? groupOf(key).avatars : groupOf(key).names).push(img || a);
+        }
+        // 无链接的裸头像（页头自己的头像按钮、CI 检查列表的 App 图标等）：头像 URL 里的
+        // 账号数字 id 即稳定身份，按 gid 键归组；与 login 键无法互查（对应关系不在 DOM），
+        // 无名字可配时只盖 ｢?｣ 圆，不影响匿名效果
+        for (const img of deepQueryAll('img[src*="/avatars.githubusercontent.com/"]')) {
+            if (img.closest('a[href], a[data-anon-href]')) continue;
+            const m = /\/(?:u|in)\/(\d+)/.exec(img.getAttribute('src') || '');
+            if (m) groupOf('gid:' + m[1]).avatars.push(img);
+        }
+        return [...byKey.values()];
+    }
+
+    // 名字元素可否打码：打码是 textContent 覆写，会把内层已盖节点连同其 anonOrig
+    // 一起吞掉（旧式 <a><b>@user</b></a> mention 结构两层都会进组），内层已盖时外层跳过
+    function ghNameMaskable(el) {
+        return !el.dataset.anonDone && !el.querySelector('[data-anon-done]');
+    }
+
+    // GitHub 版建档：与 B 站 infoFor 同规则（编号顺序/颜色/字母），档案键由 GitHub 侧
+    // 给出并存进档案供补盖头像；users/导出/撤销清档与 B 站共用同一份
+    function ghInfoFor(key, name) {
+        let info = users[key];
+        if (!info) {
+            const uid = Math.max(0, ...Object.values(users).map(u => u.uid || 0)) + 1;
+            const letter = name ? pinyinInitial(name) : '?';
+            const hue = pickColor(uid, letter);
+            info = { uid: uid, color: colorFor(hue), hue: hue, letter: letter, name: name || '', key: key };
+            users[key] = info;
+        } else if (name && !info.name) {
+            info.name = name;
+            info.letter = pinyinInitial(name);
+        }
+        info.skip = false;
+        return info;
+    }
+
+    // 同键的全部头像（楼层头像/事件行小头像/页头头像）一并盖上，幂等；groups 可传
+    // 已算好的分组结果，避免一次动作里反复全页扫描
+    function ghSpreadAvatars(key, info, groups) {
+        for (const g of (groups || ghGroups())) {
+            if (g.key !== key) continue;
+            for (const img of g.avatars) ghMaskImg(img, info);
+        }
+    }
+
+    // 防还原：PR 页时间线由 rails partial 轮询重渲染，头像 img 节点被整批替换，节点级
+    // 守卫跟踪不到新节点。登记 ｢原图 URL → 档案｣，新节点按原图 URL 重新盖回（仅内存）。
+    // 防抖 200ms，持续重渲染间隙小于防抖窗口时每轮变动起点起最多 2s 强制一次（同 B 站 mo）
+    const ghGuardedSrc = new Map();
+    let ghGuardTimer = null;
+    let ghGuardFirst = 0;
+    const ghGuardObs = new MutationObserver(() => {
+        if (!ghGuardTimer) ghGuardFirst = Date.now();
+        clearTimeout(ghGuardTimer);
+        ghGuardTimer = setTimeout(ghVerifyGuarded, Math.min(200, Math.max(0, ghGuardFirst + 2000 - Date.now())));
+    });
+    function ghMaskImg(img, info) {
+        maskAvatarImg(img, info);
+        if (img.dataset.anonSrc) ghGuardedSrc.set(img.dataset.anonSrc, info);
+        ghGuardObs.observe(document.body, { childList: true, subtree: true });
+    }
+    function ghVerifyGuarded() {
+        for (const img of document.querySelectorAll('img[src*="/avatars.githubusercontent.com/"]')) {
+            const info = ghGuardedSrc.get(img.getAttribute('src'));
+            // 须与登记时是同一个档案对象：撤销释放档案后 uid 会被新用户复用，仅按 uid
+            // 匹配会把旧登记盖到新用户头上；档案已删时 userByUid 为 null，比较天然失效
+            if (info && userByUid(info.uid) === info) maskAvatarImg(img, info);
+        }
+    }
+
+    // 全部打码：每个键先取一个未打码的名字建档定色，键下全部名字与头像成套打码；
+    // 无名字可配的键（裸头像 gid 键、或名字全已盖的组）仍按已有档案盖头像；排除名单
+    // 对 login 大小写不敏感
+    function ghMaskAll() {
+        const exc = (bar.querySelector('#anon-exclude')?.value || '')
+            .split(/[,，;；\s]+/).map(s => s.trim()).filter(Boolean);
+        let n = 0;
+        for (const g of ghGroups()) {
+            if (!g.names.length && !g.avatars.length) continue;
+            // 只认还可打码且有文本的名字链接：组里混着 icon-only 的用户链接（空文本）时
+            // 跳过它们，否则拿到空 orig 会把整组（含头像）跳掉
+            const nameA = g.names.find(x => ghNameMaskable(x) && cleanName(x.dataset.anonOrig || x.textContent));
+            let info;
+            let newly = 0;
+            if (nameA) {
+                const orig = cleanName(nameA.dataset.anonOrig || nameA.textContent);
+                if (!orig || exc.some(s => s.toLowerCase() === orig.toLowerCase())) continue;
+                info = ghInfoFor(g.key, orig);
+                if (exc.some(s => s.toLowerCase() === (info.name || '').toLowerCase())) continue;
+                for (const nm of g.names) if (ghNameMaskable(nm)) { maskNameEl(nm, info); newly++; }
+            } else {
+                // 键已建档（名字早前盖过）时沿用该档案；纯 gid 键则得到 ｢?｣ 圆档案
+                info = ghInfoFor(g.key, '');
+            }
+            // 已盖头像也重过一遍：建档拿到名字后字母/颜色要刷新，但只统计新盖的
+            for (const img of g.avatars) {
+                const was = img.dataset.anonDone;
+                ghMaskImg(img, info);
+                if (!was) newly++;
+            }
+            if (newly) n++;
+        }
+        return n;
+    }
+
+    // 已知名单应用：按名字文本全文精确匹配（@提及含 @ 也能命中），头像按键补盖
+    function ghApplyKnown(force) {
+        const byName = new Map();
+        for (const u of Object.values(users)) {
+            if (u.name && (force || !u.skip)) byName.set(u.name, u);
+        }
+        if (!byName.size) return 0;
+        const hits = [];
+        for (const node of deepTextNodes()) {
+            const txt = node.textContent.trim();
+            if (!txt) continue;
+            const bare = txt.startsWith('@') ? txt.slice(1) : txt;
+            const info = byName.get(bare);
+            if (info) hits.push([node, info]);
+        }
+        let n = 0;
+        const done = new Set();
+        for (const [node, info] of hits) {
+            const el = node.parentElement;
+            if (!el || !ghNameMaskable(el)) continue;
+            if (maskNameEl(el, info)) { n++; done.add(info); }
+        }
+        if (done.size) {
+            const groups = ghGroups();
+            for (const info of done) ghSpreadAvatars(info.key, info, groups);
+        }
+        return n;
+    }
+
+    // 编辑态点击：链接即身份。点头像链接 = 同键取名建档、头像+名字成套；
+    // 点名字链接 = 打文本 + 同键头像补盖；点已打码处 = 撤销该处。无链接的
+    // 裸头像（页头自己的头像按钮等）不在任何 <a> 里，按账号 id 键单独处理
+    function ghOnEditClick(e, t) {
+        const a = t.closest && t.closest('a[data-anon-href], a[data-hovercard-type="user"]');
+        // 裸头像身份键：已盖后 src 变 dataURL，从撤销登记 anonSrc 还原；截图附件等
+        // 非账号头像（user-images 等域名）匹配不上，仍报未识别
+        const gidKeyOf = (im) => {
+            const m = /\/(?:u|in)\/(\d+)/.exec(im.dataset.anonSrc || im.getAttribute('src') || '');
+            return m ? 'gid:' + m[1] : null;
+        };
+        const bare = !a && t.tagName === 'IMG' && (t.dataset.anonDone || gidKeyOf(t));
+        if (!a && !bare) {
+            const fmt = (el) => el.tagName + (el.className ? '.' + String(el.className).split(' ')[0].slice(0, 28) : '');
+            setStatus('未识别: ' + fmt(t));
+            return;
+        }
+        const img = a ? a.querySelector('img') : t;
+        if (img && img.dataset.anonDone) {
+            const origSrc = img.dataset.anonSrc;
+            const info = userByUid(parseInt(img.dataset.anonInfo, 10));
+            unmaskAvatarImg(img);
+            // 撤销处的原图不得再被守卫自动重盖：同档案的全部登记一并作废（该用户不再
+            // 自动重打，与 B 站 skip 语义一致）；档案已随撤销释放时残留条目由
+            // ghVerifyGuarded 的档案同一性校验天然失效，此处只消本 src 的孤儿登记
+            for (const [src, v] of [...ghGuardedSrc]) {
+                if (v === info || (src === origSrc && !info)) ghGuardedSrc.delete(src);
+            }
+            setStatus('已撤销头像打码（映射保留）');
+            return;
+        }
+        if (a && !img && a.dataset.anonDone) {
+            unmaskName(a);
+            setStatus('已撤销名字打码（映射保留）');
+            return;
+        }
+        const key = a ? ghUserKeyOf(a) : gidKeyOf(t);
+        if (!key) {
+            setStatus('未识别: 非用户链接 ' + (a
+                ? (a.getAttribute('data-anon-href') || a.getAttribute('href') || '')
+                : (t.getAttribute('src') || '').slice(0, 80)));
+            return;
+        }
+        hideHoverCardsSoon();
+        if (img) {
+            const groups = ghGroups();
+            const g = groups.find(g => g.key === key);
+            // 取名规则与 ghMaskAll 一致：只认可打码且有文本的名字链接（icon-only 空
+            // 文本跳过），已盖的名字按 anonOrig 取原名
+            const nameEl = g && g.names.find(x => ghNameMaskable(x) && cleanName(x.dataset.anonOrig || x.textContent));
+            const info = ghInfoFor(key, nameEl ? cleanName(nameEl.dataset.anonOrig || nameEl.textContent) : '');
+            ghMaskImg(img, info);
+            if (info.name) {
+                for (const gg of groups) {
+                    if (gg.key !== key) continue;
+                    for (const nm of gg.names) if (ghNameMaskable(nm)) maskNameEl(nm, info);
+                }
+            }
+            setStatus(info.name
+                ? `已打码：${info.name} → 用户${info.letter}（头像+名字）`
+                : `已盖头像圆（键 ${key}，本页暂未找到名字文本）`);
+            return;
+        }
+        if (!ghNameMaskable(a)) {
+            setStatus('该链接内已有打码点，请点内层已盖处撤销');
+            return;
+        }
+        const info = ghInfoFor(key, cleanName(a.textContent));
+        maskNameEl(a, info);
+        ghSpreadAvatars(key, info);
+        setStatus(`已打码：${info.name || key} → 用户${info.letter}（头像+名字）`);
+    }
+
     // ---------------- UI ----------------
     let editing = false;
     const css = document.createElement('style');
@@ -898,6 +1150,19 @@
 #anon-bar button:hover{background:#fb7299;color:#fff}
 #anon-bar input{border:1px solid #e3e5e7;border-radius:6px;padding:5px 8px;font-size:13px;box-sizing:border-box}
 body.anon-editing [data-anon-done]{outline:1px dashed #fb7299}
+/* GitHub 暗色主题下的工具条配色（data-color-mode=auto 时按系统深浅色；B 站无该属性不命中） */
+html[data-color-mode="dark"] #anon-bar{background:#161b22;border-color:#30363d}
+html[data-color-mode="dark"] #anon-bar .anon-tip{color:#8b949e}
+html[data-color-mode="dark"] #anon-bar button{background:#21262d;border-color:#30363d;color:#e6edf3}
+html[data-color-mode="dark"] #anon-bar button:hover{background:#238636;border-color:#238636;color:#fff}
+html[data-color-mode="dark"] #anon-bar input{background:#0d1117;border-color:#30363d;color:#e6edf3}
+@media (prefers-color-scheme: dark){
+html[data-color-mode="auto"] #anon-bar{background:#161b22;border-color:#30363d}
+html[data-color-mode="auto"] #anon-bar .anon-tip{color:#8b949e}
+html[data-color-mode="auto"] #anon-bar button{background:#21262d;border-color:#30363d;color:#e6edf3}
+html[data-color-mode="auto"] #anon-bar button:hover{background:#238636;border-color:#238636;color:#fff}
+html[data-color-mode="auto"] #anon-bar input{background:#0d1117;border-color:#30363d;color:#e6edf3}
+}
 `;
     document.documentElement.appendChild(css);
 
@@ -955,7 +1220,7 @@ body.anon-editing [data-anon-done]{outline:1px dashed #fb7299}
         const a = e.target.dataset && e.target.dataset.a;
         if (!a) return;
         if (a === 'all') {
-            const n = maskAllComments();
+            const n = IS_GITHUB ? ghMaskAll() : maskAllComments();
             setStatus(`已打码本页 ${n} 位用户（排除名单外）；翻页后再点一次即可`);
         } else if (a === 'apply') {
             const n = applyKnown(true); // 按钮强制应用，手动撤销的 skip 不拦截
@@ -976,6 +1241,7 @@ body.anon-editing [data-anon-done]{outline:1px dashed #fb7299}
                 .then(() => setStatus(`已导出 ${Object.keys(out.users).length} 个用户到剪贴板`))
                 .catch(() => setStatus('导出失败：剪贴板不可用'));
         } else if (a === 'clear') {
+            if (IS_GITHUB) ghGuardedSrc.clear(); // 守卫登记随映射一并作废，防撤销后按原图 URL 重盖
             clearPage();
         }
     });
@@ -1027,7 +1293,7 @@ body.anon-editing [data-anon-done]{outline:1px dashed #fb7299}
         e.preventDefault();
         e.stopImmediatePropagation();
         e.stopPropagation();
-        if (e.type === 'click') onEditClick(e, t);
+        if (e.type === 'click') (IS_GITHUB ? ghOnEditClick : onEditClick)(e, t);
     };
     document.addEventListener('click', swallow, true);
     document.addEventListener('auxclick', swallow, true);
@@ -1036,10 +1302,11 @@ body.anon-editing [data-anon-done]{outline:1px dashed #fb7299}
 
     // 进入编辑态时隐藏已弹出的悬浮卡片（类名匹配不到也无害，hover 拦截会阻止新卡片）
     // 进入编辑态/每次打码后清理悬浮卡片：B 站卡片挂在 body 下、fixed 定位、
-    // 文本含 ｢关注/发消息｣ 且很短（区别于内容超长的评论区容器）
+    // 文本含 ｢关注/发消息｣ 且很短（区别于内容超长的评论区容器）；
+    // GitHub 的 hovercard 挂在 .Popover 容器里
     function hideHoverCards() {
         deepQueryAll(
-            '[class*="user-card"], [class*="userCard"], [class*="bcc-user"], [class*="hover-card"]'
+            '[class*="user-card"], [class*="userCard"], [class*="bcc-user"], [class*="hover-card"], .Popover'
         ).forEach(el => { el.style.display = 'none'; });
         for (const el of document.body.children) {
             if (el.id === 'anon-btn' || el.id === 'anon-bar') continue;
