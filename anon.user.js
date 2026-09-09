@@ -2,7 +2,7 @@
 // @name         B站/GitHub截图打码助手
 // @namespace    anon.web
 // @author       uye
-// @version      0.6.0
+// @version      0.6.1
 // @description  左下角 ｢码｣ 按钮或 Alt+M 进入打码编辑态：编辑态禁用页面一切跳转/点击动作；点头像或用户名即同时盖圆+替换 ｢用户首字母｣。头像与用户名链接同一账号，共用同一档案：颜色（用户名拼音首字母）恒一致，无任何弹窗输入。仅本次页面生效，不写任何持久化存储，刷新即清空。覆盖 B 站 视频/动态(opus)/专栏(read) 与 GitHub issue/PR 页面。
 // @match        https://www.bilibili.com/video/*
 // @match        https://www.bilibili.com/opus/*
@@ -1168,6 +1168,12 @@ html[data-color-mode="auto"] #anon-bar button{background:#21262d;border-color:#3
 html[data-color-mode="auto"] #anon-bar button:hover{background:#238636;border-color:#238636;color:#fff}
 html[data-color-mode="auto"] #anon-bar input{background:#0d1117;border-color:#30363d;color:#e6edf3}
 }
+/* B 站深色模式：判别依据是 html.night-mode；配色直接取站点自己的 CSS 变量，var 回退兜改版 */
+html.night-mode #anon-bar{background:var(--bg1,#161b22);border-color:var(--Ga2,#30363d)}
+html.night-mode #anon-bar .anon-tip{color:var(--text2,#8b949e)}
+html.night-mode #anon-bar button{background:var(--bg2,#21262d);border-color:var(--Ga2,#30363d);color:var(--text1,#e6edf3)}
+html.night-mode #anon-bar button:hover{background:#fb7299;border-color:#fb7299;color:#fff}
+html.night-mode #anon-bar input{background:var(--bg3,#0d1117);border-color:var(--Ga2,#30363d);color:var(--text1,#e6edf3)}
 `;
     document.documentElement.appendChild(css);
 
