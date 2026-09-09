@@ -575,7 +575,9 @@
         el.dataset.anonUid = String(info.uid);
         el.dataset.anonDone = '1';
         el.textContent = (isAt ? '@' : '') + '用户' + info.letter;
-        el.style.color = info.color;
+        // 内联色须带 !important：站点的颜色工具类可能也带（如 GitHub Primer 的
+        // Link--primary / color-fg-default），普通内联会被其压过而显示默认前景色
+        el.style.setProperty('color', info.color, 'important');
         el.style.fontWeight = '600';
         el.title = '';
         return true;
