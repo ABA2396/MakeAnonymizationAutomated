@@ -2,8 +2,8 @@
 // @name         B站/GitHub截图打码助手
 // @namespace    anon.web
 // @author       uye
-// @version      0.6.1
-// @description  左下角 ｢码｣ 按钮或 Alt+M 进入打码编辑态：编辑态禁用页面一切跳转/点击动作；点头像或用户名即同时盖圆+替换 ｢用户首字母｣。头像与用户名链接同一账号，共用同一档案：颜色（用户名拼音首字母）恒一致，无任何弹窗输入。仅本次页面生效，不写任何持久化存储，刷新即清空。覆盖 B 站 视频/动态(opus)/专栏(read) 与 GitHub issue/PR 页面。
+// @version      0.6.2
+// @description  左下角 ｢码｣ 按钮（可拖动）或 Alt+M 进入打码编辑态：编辑态禁用页面一切跳转/点击动作；点头像或用户名即同时盖圆+替换 ｢用户首字母｣。头像与用户名链接同一账号，共用同一档案：颜色（用户名拼音首字母）恒一致，无任何弹窗输入。仅本次页面生效，不写任何持久化存储（唯一例外：按钮位置存 localStorage），刷新即清空。覆盖 B 站 视频/动态(opus)/专栏(read) 与 GitHub issue/PR 页面。
 // @match        https://www.bilibili.com/video/*
 // @match        https://www.bilibili.com/opus/*
 // @match        https://www.bilibili.com/read/*
@@ -1144,7 +1144,7 @@
 #anon-btn,#anon-bar{position:fixed;left:16px;z-index:2147483647;font-family:sans-serif}
 #anon-btn{bottom:16px;width:44px;height:44px;border-radius:50%;background:#fb7299;color:#fff;
  display:flex;align-items:center;justify-content:center;font-size:20px;cursor:pointer;
- box-shadow:0 2px 8px rgba(0,0,0,.3);user-select:none}
+ box-shadow:0 2px 8px rgba(0,0,0,.3);user-select:none;touch-action:none}
 #anon-btn.editing{background:#333}
 #anon-bar{bottom:70px;background:#fff;border:1px solid #e3e5e7;border-radius:8px;padding:8px;
  display:none;flex-direction:column;gap:6px;box-shadow:0 2px 12px rgba(0,0,0,.15);font-size:13px}
@@ -1220,12 +1220,69 @@ html.night-mode #anon-bar input{background:var(--bg3,#0d1117);border-color:var(-
         editing = on;
         btn.classList.toggle('editing', on);
         bar.classList.toggle('show', on);
+        if (on) placeBar();
         document.body.classList.toggle('anon-editing', on);
         btn.title = on ? '退出打码编辑态（Esc/Alt+M）' : '打码编辑态（Alt+M 进入）';
         if (on) { disableLinks(); hideHoverCards(); } else restoreLinks();
     }
 
-    btn.addEventListener('click', () => setEditing(!editing));
+    // 菜单贴着 ｢码｣ 按钮弹出：按钮在下半屏时从按钮上方展开，否则从下方，左右 clamp 进视口
+    function placeBar() {
+        const r = btn.getBoundingClientRect();
+        bar.style.left = Math.max(0, Math.min(r.left, innerWidth - bar.offsetWidth)) + 'px';
+        const above = r.top + r.height / 2 > innerHeight / 2;
+        bar.style.bottom = 'auto';
+        bar.style.top = above
+            ? Math.max(0, r.top - bar.offsetHeight - 8) + 'px'
+            : Math.min(r.bottom + 8, innerHeight - bar.offsetHeight) + 'px';
+    }
+
+    // ｢码｣ 按钮可拖动：位移超阈值算拖拽，原地点按才算切换；位置记 localStorage（本项目唯一
+    // 持久化例外，与匿名化数据无关），恢复与拖拽中都 clamp 进当前视口防跨分辨率出界
+    const BTN_POS_KEY = 'anonBtnPos';
+    try {
+        const p = JSON.parse(localStorage.getItem(BTN_POS_KEY) || 'null');
+        if (p && typeof p.x === 'number' && typeof p.y === 'number') {
+            btn.style.left = Math.max(0, Math.min(p.x, innerWidth - 44)) + 'px';
+            btn.style.top = Math.max(0, Math.min(p.y, innerHeight - 44)) + 'px';
+            btn.style.bottom = 'auto';
+        }
+    } catch (err) {}
+    let btnSx = 0, btnSy = 0, btnOx = 0, btnOy = 0, btnMoved = false, btnDragging = false;
+    btn.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
+        const rect = btn.getBoundingClientRect();
+        btnSx = e.clientX; btnSy = e.clientY; btnOx = rect.left; btnOy = rect.top;
+        btnMoved = false; btnDragging = true;
+        btn.setPointerCapture(e.pointerId);
+        e.preventDefault();
+    });
+    btn.addEventListener('pointermove', (e) => {
+        if (!btnDragging) return;
+        const dx = e.clientX - btnSx, dy = e.clientY - btnSy;
+        if (!btnMoved && Math.hypot(dx, dy) > 4) {
+            btnMoved = true;
+            btn.style.bottom = 'auto';
+            btn.style.cursor = 'grabbing';
+        }
+        if (!btnMoved) return;
+        btn.style.left = Math.max(0, Math.min(btnOx + dx, innerWidth - btn.offsetWidth)) + 'px';
+        btn.style.top = Math.max(0, Math.min(btnOy + dy, innerHeight - btn.offsetHeight)) + 'px';
+    });
+    btn.addEventListener('pointerup', () => {
+        if (!btnDragging) return;
+        btnDragging = false;
+        btn.style.cursor = 'pointer';
+        if (btnMoved) {
+            localStorage.setItem(BTN_POS_KEY, JSON.stringify({ x: btn.offsetLeft, y: btn.offsetTop }));
+        } else {
+            setEditing(!editing);
+        }
+    });
+    btn.addEventListener('pointercancel', () => {
+        btnDragging = false;
+        btn.style.cursor = 'pointer';
+    });
 
     bar.addEventListener('click', (e) => {
         const a = e.target.dataset && e.target.dataset.a;
