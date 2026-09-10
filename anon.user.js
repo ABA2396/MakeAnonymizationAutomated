@@ -2,7 +2,7 @@
 // @name         B站/GitHub截图打码助手
 // @namespace    anon.web
 // @author       uye
-// @version      0.6.2
+// @version      0.6.3
 // @description  左下角 ｢码｣ 按钮（可拖动）或 Alt+M 进入打码编辑态：编辑态禁用页面一切跳转/点击动作；点头像或用户名即同时盖圆+替换 ｢用户首字母｣。头像与用户名链接同一账号，共用同一档案：颜色（用户名拼音首字母）恒一致，无任何弹窗输入。仅本次页面生效，不写任何持久化存储（唯一例外：按钮位置存 localStorage），刷新即清空。覆盖 B 站 视频/动态(opus)/专栏(read) 与 GitHub issue/PR 页面。
 // @match        https://www.bilibili.com/video/*
 // @match        https://www.bilibili.com/opus/*
@@ -1226,15 +1226,16 @@ html.night-mode #anon-bar input{background:var(--bg3,#0d1117);border-color:var(-
         if (on) { disableLinks(); hideHoverCards(); } else restoreLinks();
     }
 
-    // 菜单贴着 ｢码｣ 按钮弹出：按钮在下半屏时从按钮上方展开，否则从下方，左右 clamp 进视口
+    // 菜单贴着 ｢码｣ 按钮弹出：按钮在下半屏时从按钮上方展开，否则从下方，左右 clamp 进视口。
+    // 上弹锚 bottom、下弹锚 top：此后提示文字换行让菜单变高时，增高方向背离按钮，不会盖住按钮
     function placeBar() {
         const r = btn.getBoundingClientRect();
         bar.style.left = Math.max(0, Math.min(r.left, innerWidth - bar.offsetWidth)) + 'px';
         const above = r.top + r.height / 2 > innerHeight / 2;
+        bar.style.top = 'auto';
         bar.style.bottom = 'auto';
-        bar.style.top = above
-            ? Math.max(0, r.top - bar.offsetHeight - 8) + 'px'
-            : Math.min(r.bottom + 8, innerHeight - bar.offsetHeight) + 'px';
+        if (above) bar.style.bottom = innerHeight - r.top + 8 + 'px';
+        else bar.style.top = Math.min(r.bottom + 8, innerHeight - bar.offsetHeight) + 'px';
     }
 
     // ｢码｣ 按钮可拖动：位移超阈值算拖拽，原地点按才算切换；位置记 localStorage（本项目唯一
